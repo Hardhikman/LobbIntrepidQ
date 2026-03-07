@@ -1,9 +1,12 @@
-from google.adk.agents import LlmAgent
+﻿from google.adk.agents import LlmAgent
+
+from agents.prompt_store import get_agent_instruction
+
 
 def get_synthesizer_agent(model):
     return LlmAgent(
         name="Synthesizer",
         model=model,
         tools=[],
-        instruction="Create a 400-word Executive Summary. Verdict(Pass/Reject with why?), Data, Risks, Roadmap."
+        instruction=get_agent_instruction("synthesizer"),
     )
