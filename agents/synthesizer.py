@@ -1,12 +1,11 @@
 ﻿from google.adk.agents import LlmAgent
 
-from agents.prompt_store import get_agent_instruction
+from tools import load_agent_skill_content
 
 
 def get_synthesizer_agent(model):
     return LlmAgent(
         name="Synthesizer",
         model=model,
-        tools=[],
-        instruction=get_agent_instruction("synthesizer"),
+        instruction=load_agent_skill_content("synthesizer"),
     )

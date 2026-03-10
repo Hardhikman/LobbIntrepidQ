@@ -1,12 +1,11 @@
 ﻿from google.adk.agents import LlmAgent
 
-from agents.prompt_store import get_agent_instruction
+from tools import load_agent_skill_content
 
 
-def get_critic_agent(model, tools):
+def get_critic_agent(model):
     return LlmAgent(
         name="Critic",
         model=model,
-        tools=tools,
-        instruction=get_agent_instruction("critic"),
+        instruction=load_agent_skill_content("critic"),
     )

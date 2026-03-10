@@ -1,210 +1,258 @@
-import gradio as gr
-import config
-import tools
-import os
+﻿import asyncio
 import logging
-import uuid  # CRITICAL: For unique session IDs per run
-import asyncio
-from typing import List, Any, Dict, Tuple, Optional
+import os
+import uuid
+from typing import Tuple
 
-# ADK Imports
+import gradio as gr
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import google_search
 from google.genai import types
 
-# Agent Imports
+import config
+import tools
 from agents.analyst import get_analyst_agent
 from agents.critic import get_critic_agent
 from agents.lobbyist import get_lobbyist_agent
 from agents.synthesizer import get_synthesizer_agent
 
-# Configure Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Global Session Service (Instantiated once to mimic a real DB connection)
-# We will use unique IDs to keep runs separate.
 session_service = InMemorySessionService()
 
-# --- HELPER: Robust Agent Runner ---
-async def run_agent_step(
-    agent_name: str,
-    agent: LlmAgent,
-    prompt: str,
-    run_id: str
-) -> Tuple[str, str]:
-    """
-    Executes a single agent step within a specific run context.
-    """
-    logger.info(f"Starting Agent: {agent_name} [RunID: {run_id}]")
-    
-    # 1. Fix App Name Mismatch: ADK defaults to "agents" for dynamic agents
-    APP_NAME = "agents"
-    
-    # 2. Unique Session ID: Prevents history from previous button clicks from leaking in
+
+async def run_agent_step(agent_name: str, agent: LlmAgent, prompt: str, run_id: str) -> Tuple[str, str]:
+    """Executes a single agent step within a specific run context."""
+    logger.info("Starting Agent: %s [RunID: %s]", agent_name, run_id)
+
+    app_name = "agents"
     session_id = f"sess_{agent_name.lower()}_{run_id}"
-    
-    # 3. Initialize Runner
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
-    
-    # 4. Ensure Session Exists
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
     try:
-        # We create a fresh session for this specific agent step to ensure clean context window
-        await session_service.create_session(app_name=APP_NAME, user_id="user", session_id=session_id)
+        await session_service.create_session(app_name=app_name, user_id="user", session_id=session_id)
     except Exception:
-        # If session exists (rare with UUID), we just continue
         pass
-    
+
     msg = types.Content(role="user", parts=[types.Part(text=prompt)])
     final_text = ""
-    
+
     try:
         async for event in runner.run_async(user_id="user", session_id=session_id, new_message=msg):
-            if hasattr(event, 'function_call') and event.function_call:
-                logger.info(f"[{agent_name}] Tool Call: {event.function_call.name}")
-
             if event.is_final_response() and event.content and event.content.parts:
-                text_parts = [p.text for p in event.content.parts if hasattr(p, 'text') and p.text]
-                final_text = '\n'.join(text_parts)
-                break 
-                
-    except Exception as e:
-        error_msg = f"Execution Error in {agent_name}: {str(e)}"
+                text_parts = [p.text for p in event.content.parts if hasattr(p, "text") and p.text]
+                final_text = "\n".join(text_parts)
+                break
+
+    except Exception as exc:
+        error_msg = f"Execution Error in {agent_name}: {str(exc)}"
         logger.error(error_msg)
         return "", error_msg
 
     if not final_text.strip():
-        return "", f"⚠️ {agent_name} returned empty response."
-        
-    return final_text, f"✅ {agent_name} Completed."
+        return "", f"{agent_name} returned empty response."
 
-# --- CORE LOGIC ---  
-async def run_policy_analysis(topic, google_key):
-    # 1. Generate Run ID (Fixes Workflow Problem)
+    return final_text, f"{agent_name} Completed."
+
+
+async def run_policy_analysis(topic: str, google_key: str) -> str:
     run_id = str(uuid.uuid4())[:8]
-    logger.info(f"--- Starting Analysis Run: {run_id} ---")
+    logger.info("--- Starting Analysis Run: %s ---", run_id)
 
-    # 2. Authentication
-    active_google_key = google_key or getattr(config, 'GOOGLE_API_KEY', '')
-
+    active_google_key = google_key or getattr(config, "GOOGLE_API_KEY", "")
     if not active_google_key:
-        err = "❌ Authentication Error: Missing Google API Key."
-        yield err, err, err, err
-        return
+        print("\n[!] Authentication Error: Missing Google API Key.")
+        print("    Use the 'set_key <your_key>' command to set it.")
+        return ""
 
     os.environ["GOOGLE_API_KEY"] = active_google_key
-    
-    # 3. Model & Tool Init
+
     try:
-        # ADK Recommended: specific safety settings for robustness
         safety_settings = [
             types.SafetySetting(
                 category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
             ),
             types.SafetySetting(
                 category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
-            )
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            ),
         ]
+        model = Gemini(model="gemini-2.5-flash-lite", safety_settings=safety_settings)
+    except Exception as exc:
+        print(f"\n[!] Setup Failed: {exc}")
+        return ""
 
-        model = Gemini(
-            model="gemini-2.5-flash-lite", 
-            safety_settings=safety_settings
-        )
-        
-        # Hybrid Search Tools
-        ddg_tool = tools.get_tavily_search_tool()
-        rss_tool = tools.get_rss_tool()
-        google_tool = google_search 
-        
-    except Exception as e:
-        yield f"Setup Failed: {e}", "", "", ""
-        return
-    state = {"analysis": "", "critique": "", "lobbyist": "", "summary": ""}
-    def get_ui(): return state["analysis"], state["critique"], state["lobbyist"], state["summary"]
+    print("\n[1/4] Pre-fetching research data...")
+    analyst_keywords = tools.extract_skill_keywords("analyst")
+    critic_keywords = tools.extract_skill_keywords("critic")
 
-    # --- ANALYST & CRITIC (PARALLEL) ---
-    yield "🔎 Analyst & ⚖️ Critic: Researching & Reviewing...", "", "", ""
-    
-    analyst_agent = get_analyst_agent(model, [ddg_tool])
-    critic_agent = get_critic_agent(model, [rss_tool])
+    analyst_data = tools.prefetch_data(topic, analyst_keywords)
+    critic_data = tools.prefetch_data(topic, critic_keywords)
+    rss_data = tools.prefetch_rss_news(topic)
 
-    # Run in parallel
+    print("\n[2/4] Analyst and Critic: analyzing data in parallel...")
+    analyst_agent = get_analyst_agent(model)
+    critic_agent = get_critic_agent(model)
+
     results = await asyncio.gather(
-        run_agent_step("Analyst", analyst_agent, f"Analyze topic: {topic}", run_id),
-        run_agent_step("Critic", critic_agent, f"Critique topic: {topic}", run_id)
+        run_agent_step(
+            "Analyst",
+            analyst_agent,
+            f"Topic: {topic}\n\nResearch Data:\n{analyst_data}\n\nAnalyze this data.",
+            run_id,
+        ),
+        run_agent_step(
+            "Critic",
+            critic_agent,
+            f"Topic: {topic}\n\nResearch Data:\n{critic_data}\n\nNews:\n{rss_data}\n\nCritique this topic.",
+            run_id,
+        ),
     )
-    
+
     (analyst_res, analyst_log), (critic_res, critic_log) = results
 
-    if "Error" in analyst_log: state["analysis"] = analyst_log
-    else: state["analysis"] = analyst_res
+    if "Error" in analyst_log or "Error" in critic_log:
+        print("\n[!] Error during Analyst/Critic phase.")
+        print(f"Analyst: {analyst_log}")
+        print(f"Critic: {critic_log}")
+        return ""
 
-    if "Error" in critic_log: state["critique"] = critic_log
-    else: state["critique"] = critic_res
-    
-    yield get_ui()
-    if "Error" in analyst_log or "Error" in critic_log: return
+    print("\n[3/4] Lobbyist: strategizing directives...")
+    lobbyist_agent = get_lobbyist_agent(model)
+    lobbyist_prompt = (
+        f"Analysis: {analyst_res}\n"
+        f"Critique: {critic_res}\n"
+        "Propose 3 directives."
+    )
+    lobbyist_res, lobbyist_log = await run_agent_step("Lobbyist", lobbyist_agent, lobbyist_prompt, run_id)
+    if "Error" in lobbyist_log:
+        print(f"\n[!] Error during Lobbyist phase: {lobbyist_log}")
+        return ""
 
-    # --- LOBBYIST ---
-    state["lobbyist"] = "🤝 Lobbyist: Strategizing..."
-    yield get_ui()
-    
-    lobbyist_agent = get_lobbyist_agent(model, [google_tool])
-    prompt = f"Analysis: {state['analysis']}\nCritique: {state['critique']}\nTask: Propose 3 directives."
-    res, log = await run_agent_step("Lobbyist", lobbyist_agent, prompt, run_id)
-    if "Error" in log: state["lobbyist"] = log; yield get_ui(); return
-    state["lobbyist"] = res; yield get_ui()
-
-    # --- SYNTHESIZER ---
-    state["summary"] = "📝 Synthesizer: Writing Report..."
-    yield get_ui()
-    
+    print("\n[4/4] Synthesizer: writing final executive summary...")
     summary_agent = get_synthesizer_agent(model)
-    prompt = f"Context:\n{state['analysis']}\n{state['critique']}\n{state['lobbyist']}\nSummarize."
-    res, log = await run_agent_step("Synthesizer", summary_agent, prompt, run_id)
-    state["summary"] = res; yield get_ui()
+    summary_prompt = (
+        f"Context:\n{analyst_res}\n{critic_res}\n{lobbyist_res}\n"
+        "Summarize."
+    )
+    summary_res, summary_log = await run_agent_step("Synthesizer", summary_agent, summary_prompt, run_id)
+    if "Error" in summary_log:
+        print(f"\n[!] Error during Synthesizer phase: {summary_log}")
+        return ""
 
+    import datetime
+    import re as _re
 
-def generate_markdown_report(topic, analysis, critique, lobbyist, summary):
-    import datetime, tempfile
+    def _strip_leading_heading(text: str) -> str:
+        """Remove any leading markdown heading (e.g., '## Executive Summary: ...') from agent output."""
+        return _re.sub(r"^\s*#{1,3}\s+[^\n]*\n*", "", text, count=1).strip()
+
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    md_content = f"# Policy Report: {topic}\n**Date**: {timestamp}\n\n## 📊 Analysis\n{analysis}\n\n## ⚖️ Critique\n{critique}\n\n## 📢 Directives\n{lobbyist}\n\n## 📝 Summary\n{summary}"
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp:
-        tmp.write(md_content)
-        return tmp.name
+    md_content = (
+        f"# Policy Report: {topic}\n"
+        f"**Date**: {timestamp}\n\n"
+        f"## Executive Summary\n{_strip_leading_heading(summary_res)}\n\n"
+        f"## Directives\n{_strip_leading_heading(lobbyist_res)}\n\n"
+        f"## Analysis\n{_strip_leading_heading(analyst_res)}\n\n"
+        f"## Critique\n{_strip_leading_heading(critic_res)}\n"
+    )
+    return md_content
 
-# --- UI ---
-with gr.Blocks(title="ADK Policy Analyzer", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🏛️ Data-Driven Policy Analyzer (ADK-Powered)")
-    with gr.Row():
-        with gr.Column(scale=1):
-            topic_input = gr.Textbox(label="Topic", value="Universal Basic Income in India")
-            with gr.Accordion("API Keys", open=False):
-                google_key_input = gr.Textbox(label="Google API Key", type="password")
-            analyze_btn = gr.Button("Run", variant="primary")
-        with gr.Column(scale=2):
-            with gr.Tabs():
-                with gr.TabItem("📊 Analysis"): analysis_out = gr.Markdown()
-                with gr.TabItem("⚖️ Critique"): critique_out = gr.Markdown()
-                with gr.TabItem("📢 Lobbyist"): lobbyist_out = gr.Markdown()
-                with gr.TabItem("📝 Summary"): summary_out = gr.Markdown()
-    
-    dl_btn = gr.DownloadButton("📥 Download Report", interactive=False)
 
-    analyze_btn.click(
-        fn=run_policy_analysis,
-        inputs=[topic_input, google_key_input],
-        outputs=[analysis_out, critique_out, lobbyist_out, summary_out]
-    ).then(
-        fn=generate_markdown_report,
-        inputs=[topic_input, analysis_out, critique_out, lobbyist_out, summary_out],
-        outputs=[dl_btn]
-    ).then(lambda: gr.DownloadButton(interactive=True), outputs=[dl_btn])
+def print_help():
+    print("\nAvailable commands:")
+    print("  run <topic>      - Run the analysis pipeline on the given topic")
+    print("  set_key <key>    - Set or update the Google API key for this session")
+    print("  help             - Show this help message")
+    print("  exit / quit      - Exit the CLI\n")
+
+
+async def cli_loop():
+    banner = (
+        '\x1b[94m    __          __    __  \x1b[0m\x1b[38;5;208m  ____      __                  _     ______ \x1b[0m\n' +
+        '\x1b[94m   / /   ____  / /_  / /_ \x1b[0m\x1b[38;5;208m /  _/___  / /_________  ____  (_)___/ / __ \\\x1b[0m\n' +
+        '\x1b[94m  / /   / __ \\/ __ \\/ __ \\\x1b[0m\x1b[38;5;208m / // __ \\/ __/ ___/ _ \\/ __ \\/ / __  / / / /\x1b[0m\n' +
+        '\x1b[94m / /___/ /_/ / /_/ / /_/ /\x1b[0m\x1b[38;5;208m/ // / / / /_/ /  /  __/ /_/ / / /_/ / /_/ / \x1b[0m\n' +
+        '\x1b[94m/_____/\\____/_.___/_.___/_\x1b[0m\x1b[38;5;208m__/_/ /_/\\__/_/   \\___/ .___/_/\\__,_/\\___\\_\\ \x1b[0m\n' +
+        '\x1b[94m                          \x1b[0m\x1b[38;5;208m                     /_/                     \x1b[0m\n'
+    )
+    print(banner)
+    print("       Data-Driven Policy Analyzer (ADK-Powered)")
+    print("========================================================")
+    print("Commands:")
+    print("  run <topic>      - Analyze a policy topic (e.g. 'run UBI in India')")
+    print("  set_key <key>    - Set your Google API key for this session")
+    print("  help             - Show detailed help")
+    print("  exit             - Quit the application\n")
+
+    session_key = ""
+
+    import re
+    import datetime
+
+    while True:
+        try:
+            user_input = input("popu> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting...")
+            break
+
+        if not user_input:
+            continue
+
+        parts = user_input.split(maxsplit=1)
+        command = parts[0].lower()
+        args = parts[1] if len(parts) > 1 else ""
+
+        if command in ("exit", "quit"):
+            print("Exiting...")
+            break
+
+        elif command == "help":
+            print_help()
+
+        elif command == "set_key":
+            if not args:
+                print("[!] Please provide a key: set_key <your_api_key>")
+            else:
+                session_key = args
+                print("[✓] API key updated for this session.")
+
+        elif command == "run":
+            if not args:
+                print("[!] Please provide a topic: run <topic>")
+                continue
+            
+            topic = args
+            print(f"\nStarting analysis for: '{topic}'")
+            report_content = await run_policy_analysis(topic, session_key)
+            
+            if report_content:
+                safe_topic = re.sub(r'[^a-zA-Z0-9_\-]', '_', topic[:20])
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"report_{safe_topic}_{timestamp}.md"
+                
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(report_content)
+                print(f"\n[✓] Analysis complete! Report saved to: {filename}\n")
+            else:
+                print("\n[!] Analysis failed or was aborted.\n")
+
+        else:
+            print(f"[!] Unknown command: '{command}'. Type 'help' for available commands.")
+
 
 if __name__ == "__main__":
-    demo.launch()
+    # Suppress specific ADK/httpx logging to keep CLI output clean
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("google.adk").setLevel(logging.WARNING)
+    
+    try:
+        asyncio.run(cli_loop())
+    except KeyboardInterrupt:
+        pass

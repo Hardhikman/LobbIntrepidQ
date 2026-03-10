@@ -1,5 +1,0 @@
-﻿version: 1
-interface:
-  display_name: Policy Prompt Author
-  short_description: Author and maintain Popu Agent system prompts across Analyst, Critic, Lobbyist, and Synthesizer.
-  default_prompt: Revise and align the four Popu Agent system prompts in agents/*.py while preserving strict output formats, evidence requirements, and no internal-thought leakage.

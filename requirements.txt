@@ -1,6 +1,5 @@
-google-adk
+﻿google-adk
 google-generativeai
-tavily-python
+ddgs
 feedparser
-gradio
 python-dotenv

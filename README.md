@@ -28,24 +28,16 @@ graph LR
     Synth --> Report([Final Report])
 ```
 
-## Prompt Configuration (New)
+## Agent Instructions (SKILL.md)
 
-Agent system prompts are loaded at runtime from:
+Agent system prompts and search behaviors are defined via SKILL.md files:
 
-- `skills/policy-prompt-author/references/prompts.json`
+- `skills/agent-skills/analyst/SKILL.md`
+- `skills/agent-skills/critic/SKILL.md`
+- `skills/agent-skills/lobbyist/SKILL.md`
+- `skills/agent-skills/synthesizer/SKILL.md`
 
-Runtime loader:
-
-- `agents/prompt_store.py`
-
-Agent wiring:
-
-- `agents/analyst.py` -> `get_agent_instruction("analyst")`
-- `agents/critic.py` -> `get_agent_instruction("critic")`
-- `agents/lobbyist.py` -> `get_agent_instruction("lobbyist")`
-- `agents/synthesizer.py` -> `get_agent_instruction("synthesizer")`
-
-To change live prompt behavior, edit `prompts.json`.
+To change agent behavior, output formatting, or data-fetching keywords, edit the corresponding `SKILL.md` file.
 
 ## Installation
 
@@ -57,13 +49,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Dependencies:
-
-- `google-adk>=0.0.1`
-- `google-generativeai>=0.3.0`
-- `tavily-python>=0.3.0`
-- `gradio>=4.0.0`
-- `python-dotenv>=1.0.0`
+*(Note: The `gradio` dependency has been removed in favor of a fast, native CLI.)*
 
 ## API Keys
 
@@ -71,12 +57,11 @@ Create `.env` in project root:
 
 ```env
 GOOGLE_API_KEY=your_google_api_key_here
-TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
 ## Running the App
 
-Standard:
+Launch the interactive CLI:
 
 ```bash
 python main.py
@@ -88,26 +73,26 @@ If your default Python does not have dependencies installed:
 .\popu_agent_env\Scripts\python.exe main.py
 ```
 
-The app launches a Gradio UI (typically `http://127.0.0.1:7860`).
+### CLI Commands
+
+Once inside the `popu>` prompt, you can use:
+- `run <topic>` — Runs the 4-phase analysis pipeline on your requested topic.
+- `set_key <key>` — Sets or overrides the Google API key for the current session.
+- `help` — Shows available commands.
+- `exit` — Quits the CLI.
 
 ## Project Structure
 
-- `main.py`: App orchestration and Gradio UI.
+- `main.py`: App orchestration and interactive CLI loop.
 - `config.py`: Runtime configuration and environment reads.
-- `tools.py`: Tool integrations (search/data fetch helpers).
-- `agents/prompt_store.py`: Central runtime prompt loader.
-- `agents/analyst.py`: Analyst agent factory.
-- `agents/critic.py`: Critic agent factory.
-- `agents/lobbyist.py`: Lobbyist agent factory.
-- `agents/synthesizer.py`: Synthesizer agent factory.
-- `skills/policy-prompt-author/SKILL.md`: Local skill for prompt authoring workflow.
-- `skills/policy-prompt-author/references/prompts.json`: Runtime prompt source.
-- `skills/policy-prompt-author/references/prompts.md`: Human-readable prompt inventory.
-- `images/`: Agent visualization assets.
+- `tools.py`: Tool integrations (DDGS search, RSS fetch, keyword extraction).
+- `agents/*.py`: Agent factory files that load instructions from SKILL.md.
+- `skills/agent-skills/*/SKILL.md`: The single source of truth for agent system prompts and keywords.
 
 ## Workflow
 
-1. Analyst and Critic run in parallel.
-2. Lobbyist uses Analyst + Critic outputs.
-3. Synthesizer summarizes all outputs.
-4. User can download a Markdown report from the UI.
+1. **Pre-fetch**: System extracts keywords from SKILL.md and fetches research via DuckDuckGo and RSS.
+2. **Analysis**: Analyst and Critic run in parallel using the pre-fetched data context.
+3. **Strategy**: Lobbyist uses Analyst + Critic outputs to synthesize directives.
+4. **Summary**: Synthesizer condenses all outputs into an executive summary.
+5. **Output**: The final Markdown report is automatically saved to your current directory (e.g. `report_Topic_Name_20261201.md`).
