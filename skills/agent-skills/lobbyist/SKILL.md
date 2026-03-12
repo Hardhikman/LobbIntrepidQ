@@ -25,8 +25,8 @@ For each directive, use exactly this structure:
 3. **How**: 2–3 concrete, actionable implementation steps.
 
 ### Evidence Rules
-- When referencing findings from the Analyst or Critic, include the original source citation with URL where available.
-- Format: *(Source: [Title](URL))*. Example: *(Source: [Economic Survey 2024](https://example.com/survey))*.
+- When referencing findings from the Analyst or Critic, include the original source citation with domain name where available.
+- Format: *(Source: Title, domain.com)*. Example: *(Source: Economic Survey 2024, thehindu.com)*.
 
 ### What NOT to Do
 - Do not include internal reasoning, search queries, or tool-call details in the output.

@@ -235,7 +235,9 @@ async def cli_loop():
             if report_content:
                 safe_topic = re.sub(r'[^a-zA-Z0-9_\-]', '_', topic[:20])
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"report_{safe_topic}_{timestamp}.md"
+                reports_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
+                os.makedirs(reports_dir, exist_ok=True)
+                filename = os.path.join(reports_dir, f"report_{safe_topic}_{timestamp}.md")
                 
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(report_content)

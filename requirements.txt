@@ -3,3 +3,6 @@ google-generativeai
 ddgs
 feedparser
 python-dotenv
+requests
+beautifulsoup4
+lxml
