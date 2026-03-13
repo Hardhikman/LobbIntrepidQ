@@ -197,7 +197,7 @@ async def cli_loop():
 
     while True:
         try:
-            user_input = input("popu> ").strip()
+            user_input = input("lobb> ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\nExiting...")
             break

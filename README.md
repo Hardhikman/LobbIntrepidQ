@@ -1,6 +1,6 @@
-﻿# Popu Agent - Data-Driven Policy Analyzer
+﻿# LobbIntrepidQ - Data-Driven Policy Analyzer
 
-Popu Agent is a multi-agent policy analysis system built with Google ADK and Gemini.
+LobbIntrepidQ is a multi-agent policy analysis system built with Google ADK and Gemini.
 
 ## Overview
 
@@ -70,12 +70,12 @@ python main.py
 If your default Python does not have dependencies installed:
 
 ```bash
-.\popu_agent_env\Scripts\python.exe main.py
+.\LobbIntrepidQ_env\Scripts\python.exe main.py
 ```
 
 ### CLI Commands
 
-Once inside the `popu>` prompt, you can use:
+Once inside the `lobb>` prompt, you can use:
 - `run <topic>` — Runs the 4-phase analysis pipeline on your requested topic.
 - `set_key <key>` — Sets or overrides the Google API key for the current session.
 - `help` — Shows available commands.

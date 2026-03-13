@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # Virtual environments
-popu_agent_env/
+LobbIntrepidQ_env/
 venv/
 env/
 ENV/
